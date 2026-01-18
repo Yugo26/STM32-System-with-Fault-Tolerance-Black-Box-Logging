@@ -1,8 +1,0 @@
-../Core/Src/main.c:84:5:main	1
-../Core/Src/main.c:171:6:SystemClock_Config	3
-../Core/Src/main.c:218:13:MX_USART2_UART_Init	2
-../Core/Src/main.c:251:13:MX_GPIO_Init	1
-../Core/Src/main.c:290:6:HAL_GPIO_EXTI_Callback	3
-../Core/Src/main.c:313:6:StartDefaultTask	1
-../Core/Src/main.c:331:6:StartUartTask	1
-../Core/Src/main.c:348:6:Error_Handler	1
