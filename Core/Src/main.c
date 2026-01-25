@@ -24,6 +24,9 @@
 /* USER CODE BEGIN Includes */
 #include "queue.h"
 #include "FreeRTOS.h"
+#include "my_flash.h"
+#include "my_sensor.h"
+#include "my_shell.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -43,10 +46,14 @@
 
 /* Private variables ---------------------------------------------------------*/
 ADC_HandleTypeDef hadc1;
+DMA_HandleTypeDef hdma_adc1;
+
+I2C_HandleTypeDef hi2c1;
 
 TIM_HandleTypeDef htim2;
 
 UART_HandleTypeDef huart2;
+DMA_HandleTypeDef hdma_usart2_tx;
 
 /* Definitions for defaultTask */
 osThreadId_t defaultTaskHandle;
@@ -68,25 +75,28 @@ const osMessageQueueAttr_t myQueue01_attributes = {
   .name = "myQueue01"
 };
 /* USER CODE BEGIN PV */
-
+uint32_t adc_buffer;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
+static void MX_DMA_Init(void);
 static void MX_USART2_UART_Init(void);
 static void MX_ADC1_Init(void);
 static void MX_TIM2_Init(void);
+static void MX_I2C1_Init(void);
 void StartDefaultTask(void *argument);
 void StartUartTask(void *argument);
 
 /* USER CODE BEGIN PFP */
-
+void Save_To_Flash(uint32_t data);
+uint32_t Load_From_Flash(void);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-uint8_t rx_data[1];
+
 /* USER CODE END 0 */
 
 /**
@@ -118,11 +128,63 @@ int main(void)
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
+  MX_DMA_Init();
   MX_USART2_UART_Init();
   MX_ADC1_Init();
   MX_TIM2_Init();
+  MX_I2C1_Init();
   /* USER CODE BEGIN 2 */
-  HAL_UART_Receive_IT(&huart2, rx_data, 1);
+
+  //HAL_UART_Receive_IT(&huart2, rx_data, 1);
+  //I2C_Scanner();
+
+  /*SPI Data Transmit*/
+  /*uint8_t tx_data = 0x55;
+  uint8_t rx_data = 0;
+  char msg[50];
+
+  sprintf(msg, "Sending SPI: 0x%02X\r\n", tx_data);
+  HAL_UART_Transmit(&huart2, (uint8_t*)msg, strlen(msg), 100);
+
+  if(HAL_SPI_TransmitReceive(&hspi1, &tx_data, &rx_data, 1, 100)==HAL_OK){
+	  if(rx_data==tx_data) sprintf(msg, "Success! Received: 0x%02X\r\n", rx_data);
+	  else sprintf(msg, "Fail! Received: 0x%02X (Expected: 0x%02X)\r\n", rx_data, tx_data);
+  }
+  else sprintf(msg, "SPI Error!\r\n");
+  HAL_UART_Transmit(&huart2, (uint8_t*)msg, strlen(msg), 100);*/
+
+  /*Flash Save*/
+  HAL_Delay(2000);
+  char msg[60];
+  uint32_t last_temp = Load_From_Flash();
+
+  if(last_temp == 0xFFFFFFFF){
+	  sprintf(msg, "History: None (Clean Flash)\r\n");
+  }
+  else {
+	  sprintf(msg, "History: Last Temp was %lu C\r\n", last_temp);
+  }
+  HAL_UART_Transmit(&huart2, (uint8_t*)msg, strlen(msg), 100);
+
+  HAL_ADC_Start(&hadc1);
+
+  if(HAL_ADC_PollForConversion(&hadc1, 10)==HAL_OK){
+	  uint32_t raw_value = HAL_ADC_GetValue(&hadc1);
+	  int32_t current_temp = Convert_To_Temperature(raw_value);
+
+	  sprintf(msg, "Current Temp: %lu C\r\n", current_temp);
+	  HAL_UART_Transmit(&huart2, (uint8_t*)msg, strlen(msg), 100);
+
+	  sprintf(msg, "Saving to Flash...\r\n");
+	  HAL_UART_Transmit(&huart2, (uint8_t*)msg, strlen(msg), 100);
+
+	  Save_To_Flash(current_temp);
+
+	  sprintf(msg, "Done! Reset to check again.\r\n");
+	  HAL_UART_Transmit(&huart2, (uint8_t*)msg, strlen(msg), 100);
+  }
+  Shell_Init(&huart2);
+
   /* USER CODE END 2 */
 
   /* Init scheduler */
@@ -175,8 +237,6 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-
-
 	  HAL_Delay(500);
   }
   /* USER CODE END 3 */
@@ -281,6 +341,40 @@ static void MX_ADC1_Init(void)
 }
 
 /**
+  * @brief I2C1 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_I2C1_Init(void)
+{
+
+  /* USER CODE BEGIN I2C1_Init 0 */
+
+  /* USER CODE END I2C1_Init 0 */
+
+  /* USER CODE BEGIN I2C1_Init 1 */
+
+  /* USER CODE END I2C1_Init 1 */
+  hi2c1.Instance = I2C1;
+  hi2c1.Init.ClockSpeed = 100000;
+  hi2c1.Init.DutyCycle = I2C_DUTYCYCLE_2;
+  hi2c1.Init.OwnAddress1 = 0;
+  hi2c1.Init.AddressingMode = I2C_ADDRESSINGMODE_7BIT;
+  hi2c1.Init.DualAddressMode = I2C_DUALADDRESS_DISABLE;
+  hi2c1.Init.OwnAddress2 = 0;
+  hi2c1.Init.GeneralCallMode = I2C_GENERALCALL_DISABLE;
+  hi2c1.Init.NoStretchMode = I2C_NOSTRETCH_DISABLE;
+  if (HAL_I2C_Init(&hi2c1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN I2C1_Init 2 */
+
+  /* USER CODE END I2C1_Init 2 */
+
+}
+
+/**
   * @brief TIM2 Initialization Function
   * @param None
   * @retval None
@@ -294,7 +388,6 @@ static void MX_TIM2_Init(void)
 
   TIM_ClockConfigTypeDef sClockSourceConfig = {0};
   TIM_MasterConfigTypeDef sMasterConfig = {0};
-  TIM_OC_InitTypeDef sConfigOC = {0};
 
   /* USER CODE BEGIN TIM2_Init 1 */
 
@@ -314,28 +407,15 @@ static void MX_TIM2_Init(void)
   {
     Error_Handler();
   }
-  if (HAL_TIM_PWM_Init(&htim2) != HAL_OK)
-  {
-    Error_Handler();
-  }
   sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
   sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
   if (HAL_TIMEx_MasterConfigSynchronization(&htim2, &sMasterConfig) != HAL_OK)
   {
     Error_Handler();
   }
-  sConfigOC.OCMode = TIM_OCMODE_PWM1;
-  sConfigOC.Pulse = 0;
-  sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
-  sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
-  if (HAL_TIM_PWM_ConfigChannel(&htim2, &sConfigOC, TIM_CHANNEL_1) != HAL_OK)
-  {
-    Error_Handler();
-  }
   /* USER CODE BEGIN TIM2_Init 2 */
 
   /* USER CODE END TIM2_Init 2 */
-  HAL_TIM_MspPostInit(&htim2);
 
 }
 
@@ -373,6 +453,26 @@ static void MX_USART2_UART_Init(void)
 }
 
 /**
+  * Enable DMA controller clock
+  */
+static void MX_DMA_Init(void)
+{
+
+  /* DMA controller clock enable */
+  __HAL_RCC_DMA1_CLK_ENABLE();
+  __HAL_RCC_DMA2_CLK_ENABLE();
+
+  /* DMA interrupt init */
+  /* DMA1_Stream6_IRQn interrupt configuration */
+  HAL_NVIC_SetPriority(DMA1_Stream6_IRQn, 5, 0);
+  HAL_NVIC_EnableIRQ(DMA1_Stream6_IRQn);
+  /* DMA2_Stream0_IRQn interrupt configuration */
+  HAL_NVIC_SetPriority(DMA2_Stream0_IRQn, 5, 0);
+  HAL_NVIC_EnableIRQ(DMA2_Stream0_IRQn);
+
+}
+
+/**
   * @brief GPIO Initialization Function
   * @param None
   * @retval None
@@ -390,11 +490,21 @@ static void MX_GPIO_Init(void)
   __HAL_RCC_GPIOA_CLK_ENABLE();
   __HAL_RCC_GPIOB_CLK_ENABLE();
 
+  /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, GPIO_PIN_RESET);
+
   /*Configure GPIO pin : B1_Pin */
   GPIO_InitStruct.Pin = B1_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_IT_FALLING;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(B1_GPIO_Port, &GPIO_InitStruct);
+
+  /*Configure GPIO pin : LD2_Pin */
+  GPIO_InitStruct.Pin = LD2_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(LD2_GPIO_Port, &GPIO_InitStruct);
 
   /* EXTI interrupt init*/
   HAL_NVIC_SetPriority(EXTI15_10_IRQn, 5, 0);
@@ -421,12 +531,33 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 	}
 }
 
-void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
+void HAL_UART_TxCpltCallback(UART_HandleTypeDef *huart)
 {
-	if(huart->Instance==USART2){
-		xQueueSendFromISR(myQueue01Handle, &rx_data[0], NULL);
-		HAL_UART_Receive_IT(&huart2, rx_data, 1);
+    if(huart->Instance == USART2){
+
+    }
+}
+
+
+
+void I2C_Scanner(void)
+{
+	char msg[64];
+	sprintf(msg, "--- Starting I2C Scan ---\r\n");
+	HAL_UART_Transmit(&huart2, (uint8_t*)msg, strlen(msg), 100);
+
+	HAL_StatusTypeDef result;
+	uint8_t i;
+	for(int i = 0;i<128;i++){
+		result = HAL_I2C_IsDeviceReady(&hi2c1, (uint16_t)(i<<1), 1, 10);
+		if(result == HAL_OK){
+			sprintf(msg, "Found device at: 0x%02X\r\n", i);
+			HAL_UART_Transmit(&huart2, (uint8_t*)msg, strlen(msg), 100);
+		}
 	}
+	sprintf(msg, "--- Scan Done ---\r\n");
+	HAL_UART_Transmit(&huart2, (uint8_t*)msg, strlen(msg), 100);
+
 }
 
 /* USER CODE END 4 */
@@ -441,8 +572,19 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 void StartDefaultTask(void *argument)
 {
   /* USER CODE BEGIN 5 */
+  uint8_t long_msg[] = "Hello DMA! This is a very very long message to test if CPU is free. "
+	                   "While this message is being sent by DMA controller, "
+	                   "the CPU should be blinking the LED at the same time.\r\n";
+  for(;;)
+  {
+	//HAL_UART_Transmit_DMA(&huart2, long_msg, sizeof(long_msg)-1);
+	//HAL_GPIO_TogglePin(LD2_GPIO_Port, LD2_Pin);
 
-  uint32_t raw_value;
+	osDelay(2000);
+  }
+
+  /*breathing light producer*/
+  /*uint32_t raw_value;
   uint32_t voltage;
   int temperature;
   char msg[50];
@@ -458,23 +600,7 @@ void StartDefaultTask(void *argument)
 	sprintf(msg, "Temperature:%ld\r\n",temperature);
 	HAL_UART_Transmit(&huart2, (uint8_t*)msg, strlen(msg), 100);
 	osDelay(100);
-  }
-  /*breathing light*/
-  /*HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_1);
-
-  int16_t brightness = 0;
-  int8_t step = 10;*/
-
-
-/*__HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_1, brightness);
-	  brightness +=step;
-
-	  if(brightness>=1000){
-		  step = -10;
-	  }
-	  if(brightness<=0){
-		  step = 10;
-	  }*/
+  }*/
 
 	  /*external interrupt to control LD2 status from keyboard 0 or 1*/
 	  /*if(xQueueReceive(myQueue01Handle, &received_char, osWaitForever)==pdTRUE){
@@ -499,7 +625,32 @@ void StartDefaultTask(void *argument)
 void StartUartTask(void *argument)
 {
   /* USER CODE BEGIN StartUartTask */
-  uint32_t breath_speed = 20;
+
+  for(;;){
+	  Shell_Process();
+	  osDelay(10);
+  }
+
+  /*ADC transmits temperature by DMA*/
+  /*HAL_ADC_Start_DMA(&hadc1, &adc_buffer, 1);
+  char msg[50];
+  uint32_t raw_value;
+  uint32_t voltage;
+  int 	   temperature;
+
+  for(;;){
+
+	  raw_value = adc_buffer;
+	  voltage = (raw_value * 3300) / 4095;
+	  temperature = ((int)(voltage - 760) * 10 / 25) + 25;
+
+	  sprintf(msg, "DMA Temp: %ld C (Raw: %lu)\r\n", temperature, raw_value);
+	  //HAL_UART_Transmit(&huart2, (uint8_t*)msg, strlen(msg), 10);
+	  osDelay(1000);
+  }*/
+
+	/*breathing light receiver*/
+  /*uint32_t breath_speed = 20;
   int received_temp = 0;
   uint32_t brightness = 0;
   int8_t step = 10;
@@ -518,28 +669,7 @@ void StartUartTask(void *argument)
 	if(brightness>=1000) step = -10;
 	if(brightness<=0) step = 10;
 	osDelay(breath_speed);
-  }
-  /*receive the temperature with calculating the raw_value from ADC and voltage*/
-  /*char msg[50];
-  uint32_t raw_value;
-
-  uint32_t  voltage;
-  int temperature;
-
-  for(;;)
-  {
-	HAL_ADC_Start(&hadc1);
-	if(HAL_ADC_PollForConversion(&hadc1,10)==HAL_OK){
-		raw_value = HAL_ADC_GetValue(&hadc1);
-
-		voltage = (raw_value*3300)/4095;
-		temperature = ((int)(voltage -760)*10/25)+25;
-		sprintf(msg,"ADC Raw:%lu, Volt:%lu, Temperature:%ld\r\n",raw_value, voltage, temperature);
-		HAL_UART_Transmit(&huart2, (uint8_t*)msg, strlen(msg), 100);
-
-	}
-	osDelay(2000);/*
-  }
+  }*/
   /* USER CODE END StartUartTask */
 }
 
