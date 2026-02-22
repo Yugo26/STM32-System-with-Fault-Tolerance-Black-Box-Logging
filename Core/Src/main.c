@@ -27,6 +27,10 @@
 #include "my_flash.h"
 #include "my_sensor.h"
 #include "my_shell.h"
+#include "my_rtc.h"
+#include "bsp_sensor.h"
+
+extern const SensorDriver_t MockSensorDriver;
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -49,6 +53,10 @@ ADC_HandleTypeDef hadc1;
 DMA_HandleTypeDef hdma_adc1;
 
 I2C_HandleTypeDef hi2c1;
+
+IWDG_HandleTypeDef hiwdg;
+
+RTC_HandleTypeDef hrtc;
 
 TIM_HandleTypeDef htim2;
 
@@ -74,8 +82,14 @@ osMessageQueueId_t myQueue01Handle;
 const osMessageQueueAttr_t myQueue01_attributes = {
   .name = "myQueue01"
 };
+/* Definitions for myBinarySem01 */
+osSemaphoreId_t myBinarySem01Handle;
+const osSemaphoreAttr_t myBinarySem01_attributes = {
+  .name = "myBinarySem01"
+};
 /* USER CODE BEGIN PV */
 uint32_t adc_buffer;
+const SensorDriver_t *pSensor = &MockSensorDriver;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -85,6 +99,8 @@ static void MX_DMA_Init(void);
 static void MX_USART2_UART_Init(void);
 static void MX_ADC1_Init(void);
 static void MX_TIM2_Init(void);
+static void MX_IWDG_Init(void);
+static void MX_RTC_Init(void);
 static void MX_I2C1_Init(void);
 void StartDefaultTask(void *argument);
 void StartUartTask(void *argument);
@@ -132,11 +148,14 @@ int main(void)
   MX_USART2_UART_Init();
   MX_ADC1_Init();
   MX_TIM2_Init();
+  //MX_IWDG_Init();
+  MX_RTC_Init();
   MX_I2C1_Init();
   /* USER CODE BEGIN 2 */
+  uint8_t rx_data = 0;
+  HAL_UART_Receive_IT(&huart2, rx_data, 1);
+  Shell_Init(&huart2);
 
-  //HAL_UART_Receive_IT(&huart2, rx_data, 1);
-  //I2C_Scanner();
 
   /*SPI Data Transmit*/
   /*uint8_t tx_data = 0x55;
@@ -154,7 +173,7 @@ int main(void)
   HAL_UART_Transmit(&huart2, (uint8_t*)msg, strlen(msg), 100);*/
 
   /*Flash Save*/
-  HAL_Delay(2000);
+  /*HAL_Delay(2000);
   char msg[60];
   uint32_t last_temp = Load_From_Flash();
 
@@ -183,8 +202,19 @@ int main(void)
 	  sprintf(msg, "Done! Reset to check again.\r\n");
 	  HAL_UART_Transmit(&huart2, (uint8_t*)msg, strlen(msg), 100);
   }
-  Shell_Init(&huart2);
 
+
+  if(__HAL_RCC_GET_FLAG(RCC_FLAG_IWDGRST)){
+	  snprintf(msg, sizeof(msg), "System Resetted by Watchdog! (IWDG)\r\n");
+	  __HAL_RCC_CLEAR_RESET_FLAGS();
+  }
+  else{
+	  snprintf(msg, sizeof(msg), "System Normal Power-on.\r\n");
+  }
+  HAL_UART_Transmit(&huart2, (uint8_t*)msg, strlen(msg), 100);*/
+
+
+  I2C_Scanner();
   /* USER CODE END 2 */
 
   /* Init scheduler */
@@ -193,6 +223,10 @@ int main(void)
   /* USER CODE BEGIN RTOS_MUTEX */
   /* add mutexes, ... */
   /* USER CODE END RTOS_MUTEX */
+
+  /* Create the semaphores(s) */
+  /* creation of myBinarySem01 */
+  myBinarySem01Handle = osSemaphoreNew(1, 1, &myBinarySem01_attributes);
 
   /* USER CODE BEGIN RTOS_SEMAPHORES */
   /* add semaphores, ... */
@@ -259,9 +293,10 @@ void SystemClock_Config(void)
   /** Initializes the RCC Oscillators according to the specified parameters
   * in the RCC_OscInitTypeDef structure.
   */
-  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI;
+  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI|RCC_OSCILLATORTYPE_LSI;
   RCC_OscInitStruct.HSIState = RCC_HSI_ON;
   RCC_OscInitStruct.HSICalibrationValue = RCC_HSICALIBRATION_DEFAULT;
+  RCC_OscInitStruct.LSIState = RCC_LSI_ON;
   RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
   RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSI;
   RCC_OscInitStruct.PLL.PLLM = 16;
@@ -371,6 +406,97 @@ static void MX_I2C1_Init(void)
   /* USER CODE BEGIN I2C1_Init 2 */
 
   /* USER CODE END I2C1_Init 2 */
+
+}
+
+/**
+  * @brief IWDG Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_IWDG_Init(void)
+{
+
+  /* USER CODE BEGIN IWDG_Init 0 */
+
+  /* USER CODE END IWDG_Init 0 */
+
+  /* USER CODE BEGIN IWDG_Init 1 */
+
+  /* USER CODE END IWDG_Init 1 */
+  hiwdg.Instance = IWDG;
+  hiwdg.Init.Prescaler = IWDG_PRESCALER_32;
+  hiwdg.Init.Reload = 3000;
+  if (HAL_IWDG_Init(&hiwdg) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN IWDG_Init 2 */
+
+  /* USER CODE END IWDG_Init 2 */
+
+}
+
+/**
+  * @brief RTC Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_RTC_Init(void)
+{
+
+  /* USER CODE BEGIN RTC_Init 0 */
+
+  /* USER CODE END RTC_Init 0 */
+
+  RTC_TimeTypeDef sTime = {0};
+  RTC_DateTypeDef sDate = {0};
+
+  /* USER CODE BEGIN RTC_Init 1 */
+
+  /* USER CODE END RTC_Init 1 */
+
+  /** Initialize RTC Only
+  */
+  hrtc.Instance = RTC;
+  hrtc.Init.HourFormat = RTC_HOURFORMAT_24;
+  hrtc.Init.AsynchPrediv = 127;
+  hrtc.Init.SynchPrediv = 255;
+  hrtc.Init.OutPut = RTC_OUTPUT_DISABLE;
+  hrtc.Init.OutPutPolarity = RTC_OUTPUT_POLARITY_HIGH;
+  hrtc.Init.OutPutType = RTC_OUTPUT_TYPE_OPENDRAIN;
+  if (HAL_RTC_Init(&hrtc) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  /* USER CODE BEGIN Check_RTC_BKUP */
+
+  /* USER CODE END Check_RTC_BKUP */
+
+  /** Initialize RTC and set the Time and Date
+  */
+  sTime.Hours = 18;
+  sTime.Minutes = 0;
+  sTime.Seconds = 0;
+  sTime.DayLightSaving = RTC_DAYLIGHTSAVING_NONE;
+  sTime.StoreOperation = RTC_STOREOPERATION_RESET;
+  if (HAL_RTC_SetTime(&hrtc, &sTime, RTC_FORMAT_BIN) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sDate.WeekDay = RTC_WEEKDAY_THURSDAY;
+  sDate.Month = RTC_MONTH_JANUARY;
+  sDate.Date = 29;
+  sDate.Year = 26;
+
+  if (HAL_RTC_SetDate(&hrtc, &sDate, RTC_FORMAT_BIN) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN RTC_Init 2 */
+
+  /* USER CODE END RTC_Init 2 */
 
 }
 
@@ -519,15 +645,8 @@ static void MX_GPIO_Init(void)
 
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 {
-	static uint32_t last_press = 0;
-	uint32_t current_time = HAL_GetTick();
-
-
-	if(GPIO_Pin==B1_Pin){
-		if((current_time-last_press)>200){
-			//HAL_GPIO_TogglePin(LD2_GPIO_Port, LD2_Pin);
-			last_press = current_time;
-		}
+	if(GPIO_Pin == B1_Pin){
+		osSemaphoreRelease(myBinarySem01Handle);
 	}
 }
 
@@ -542,22 +661,39 @@ void HAL_UART_TxCpltCallback(UART_HandleTypeDef *huart)
 
 void I2C_Scanner(void)
 {
-	char msg[64];
-	sprintf(msg, "--- Starting I2C Scan ---\r\n");
-	HAL_UART_Transmit(&huart2, (uint8_t*)msg, strlen(msg), 100);
+	char msg[128];
 
-	HAL_StatusTypeDef result;
-	uint8_t i;
-	for(int i = 0;i<128;i++){
-		result = HAL_I2C_IsDeviceReady(&hi2c1, (uint16_t)(i<<1), 1, 10);
-		if(result == HAL_OK){
-			sprintf(msg, "Found device at: 0x%02X\r\n", i);
-			HAL_UART_Transmit(&huart2, (uint8_t*)msg, strlen(msg), 100);
-		}
-	}
-	sprintf(msg, "--- Scan Done ---\r\n");
-	HAL_UART_Transmit(&huart2, (uint8_t*)msg, strlen(msg), 100);
+    for (int i = 1; i < 128; i++)
+    {
+        if (HAL_I2C_IsDeviceReady(&hi2c1, (i << 1), 1, 10) == HAL_OK)
+        {
+            sprintf(msg, "Found: 0x%02X\r\n", i);
+            HAL_UART_Transmit(&huart2, (uint8_t*)msg, strlen(msg), 100);
+        }
+    }
 
+    sprintf(msg, "--- Scan Done ---\r\n");
+    HAL_UART_Transmit(&huart2, (uint8_t*)msg, strlen(msg), 100);
+
+    /*
+    	// 1. 設定目標地址 (0x44 左移一位 = 0x88)
+    	// 務必使用 0x88 測試，否則就算硬體好了也會報錯
+    	uint16_t target_addr = (0x44);
+
+    	// 2. 印出開始訊息
+    	sprintf(msg, "--- Starting SHT30 Diagnostics ---\r\n");
+    	HAL_UART_Transmit(&huart2, (uint8_t*)msg, strlen(msg), 100);
+
+    	sprintf(msg, "Testing Target Address: 0x%02X\r\n", target_addr);
+    	HAL_UART_Transmit(&huart2, (uint8_t*)msg, strlen(msg), 100);
+
+    	// 3. 執行檢測
+    	HAL_StatusTypeDef result = HAL_I2C_IsDeviceReady(&hi2c1, target_addr, 2, 100);
+
+    	if (result == HAL_OK) {
+    	    sprintf(msg, "✅ SUCCESS! Sensor Found at 0x%02X\r\n", target_addr);
+    	    HAL_UART_Transmit(&huart2, (uint8_t*)msg, strlen(msg), 100);
+    	}*/
 }
 
 /* USER CODE END 4 */
@@ -575,12 +711,19 @@ void StartDefaultTask(void *argument)
   uint8_t long_msg[] = "Hello DMA! This is a very very long message to test if CPU is free. "
 	                   "While this message is being sent by DMA controller, "
 	                   "the CPU should be blinking the LED at the same time.\r\n";
+
   for(;;)
   {
 	//HAL_UART_Transmit_DMA(&huart2, long_msg, sizeof(long_msg)-1);
 	//HAL_GPIO_TogglePin(LD2_GPIO_Port, LD2_Pin);
 
-	osDelay(2000);
+	if(osSemaphoreAcquire(myBinarySem01Handle, osWaitForever) == osOK){
+		//HAL_GPIO_TogglePin(LD2_GPIO_Port, LD2_Pin);
+
+		//char msg[] = "Button Pressed! Handling in Task context.\r\n";
+		//HAL_UART_Transmit_DMA(&huart2, (uint8_t*)msg, strlen(msg));
+	}
+	osDelay(100);
   }
 
   /*breathing light producer*/
@@ -627,8 +770,12 @@ void StartUartTask(void *argument)
   /* USER CODE BEGIN StartUartTask */
 
   for(;;){
-	  Shell_Process();
-	  osDelay(10);
+	  //Shell_Process();
+
+	  //HAL_IWDG_Refresh(&hiwdg);
+
+
+	  osDelay(100);
   }
 
   /*ADC transmits temperature by DMA*/
