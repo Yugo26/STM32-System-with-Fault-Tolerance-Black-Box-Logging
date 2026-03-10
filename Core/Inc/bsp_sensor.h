@@ -9,7 +9,8 @@
 #define INC_BSP_SENSOR_H_
 #include <stdint.h>
 
-typedef struct{
+typedef struct
+{
 	const char *Name;
 	int8_t (*Init)(void);
 	int8_t (*ReadTemp)(float *val);

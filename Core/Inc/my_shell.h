@@ -9,6 +9,8 @@
 #define INC_MY_SHELL_H_
 
 #include "stm32f4xx_hal.h"
+#include "bsp_sensor.h"
+#define  RX_BUFFER_SIZE 32
 
 void Shell_Init(UART_HandleTypeDef *huart_handle);
 void Shell_Process();
@@ -21,8 +23,11 @@ typedef enum
 	CMD_TEMP,
 	CMD_TIME,
 	CMD_STATUS,
+	CMD_HISTORY,
 	CMD_HELP,
 	CMD_BUG
 } CommandID;
+
+
 
 #endif /* INC_MY_SHELL_H_ */

@@ -16,9 +16,9 @@
 
 extern UART_HandleTypeDef huart2;
 extern ADC_HandleTypeDef hadc1;
+extern const SensorDriver_t MockSensorDriver;
 extern const SensorDriver_t *pSensor;
 
-#define  RX_BUFFER_SIZE 32
 uint8_t  rx_data;
 uint8_t  rx_buffer[RX_BUFFER_SIZE];
 uint32_t rx_index = 0;
@@ -35,6 +35,7 @@ void Shell_Init(UART_HandleTypeDef *huart_handle)
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 {
 	if(huart->Instance==USART2){
+
 		if(rx_data =='\r' || rx_data =='\n'){
 			if(rx_index>0){
 				rx_buffer[rx_index]='\0';
@@ -60,6 +61,7 @@ CommandID Parse_Command(char *input_str)
 	if (strcmp(input_str, "temp")    == 0)  return CMD_TEMP;
 	if (strcmp(input_str, "time")    == 0)  return CMD_TIME;
 	if (strcmp(input_str, "status")  == 0)  return CMD_STATUS;
+	if (strcmp(input_str, "history") == 0)  return CMD_HISTORY;
 	if (strcmp(input_str, "help")    == 0)  return CMD_HELP;
 	if (strcmp(input_str, "bug")     == 0)  return CMD_BUG;
 
@@ -69,7 +71,6 @@ CommandID Parse_Command(char *input_str)
 void Shell_Process()
 {
 	if(cmd_flag){
-
 		if(strlen(rx_buffer)==0){
 			cmd_flag = 0;
 			memset(rx_buffer, 0, sizeof(rx_buffer));
@@ -78,7 +79,6 @@ void Shell_Process()
 		}
 		CommandID cmd_id = Parse_Command(rx_buffer);
 		char msg[200];
-
 		switch (cmd_id)
 		{
 			case CMD_LED_ON:
@@ -94,18 +94,23 @@ void Shell_Process()
 				break;
 
 			case CMD_TEMP:
+			{
 				float temp_val = 0.0f;
+				static uint8_t error_count = 0;
+
 				if(pSensor!=NULL && pSensor->ReadTemp !=NULL){
 					if(pSensor->ReadTemp(&temp_val)==0){
-						int t_int = (int)temp_val;
-						int t_dec = (int)((temp_val - t_int) * 10);
-						sprintf(msg, "Temp: %d.%d C\r\n", t_int, t_dec);
+						error_count = 0;
+			            int t_int = (int)temp_val;
+			            int t_dec = (int)((temp_val - t_int) * 10);
+			            sprintf(msg, "Temp: %d.%d C\r\n", t_int, t_dec);
 					}
-					else sprintf(msg, "Error: Sensor Read Failed\r\n");
 				}
-				else sprintf(msg, "Error: Sensor Read Failed\r\n");
+				else sprintf(msg, "Error: Driver not initialized\r\n");
+
 				HAL_UART_Transmit(&huart2, (uint8_t*)msg, strlen(msg), 100);
 				break;
+			}
 
 			case CMD_TIME:
 				uint32_t time = Get_RTC_Current_Time();
@@ -113,7 +118,7 @@ void Shell_Process()
 				uint8_t m = (time>> 8)& 0XFF;
 				uint8_t s = (time>> 0)& 0XFF;
 
-				sprintf(msg, "Time: %02d:%02d:%02d (Raw: 0x%08lX)\r\n", h, m, s, time);
+				sprintf(msg, "Time: %02d:%02d:%02d\r\n", h, m, s, time);
 				HAL_UART_Transmit(&huart2, (uint8_t*)msg, strlen(msg), 100);
 				break;
 
@@ -133,7 +138,7 @@ void Shell_Process()
 					drv_name = pSensor->Name;
 				}
 			    sprintf(msg,
-			        "\r\n=== [SYSTEM DASHBOARD] ===\r\n"
+			        "\r\nSYSTEM DASHBOARD\r\n"
 			        " Driver : %s\r\n"
 			        " RTC    : %02d:%02d:%02d\r\n"
 			        " Uptime : %02d:%02d:%02d\r\n"
@@ -145,8 +150,13 @@ void Shell_Process()
 			    HAL_UART_Transmit(&huart2, (uint8_t*)msg, strlen(msg), 100);
 
 				break;
+
+			case CMD_HISTORY:
+				Log_Dump();
+				break;
+
 			case CMD_HELP:
-				sprintf(msg, "List: led on, led off, temp, time\r\n");
+				sprintf(msg, "List: led on, led off, temp, time, status, help, bug\r\n");
 				HAL_UART_Transmit(&huart2, (uint8_t*)msg, strlen(msg), 100);
 				break;
 
@@ -166,6 +176,6 @@ void Shell_Process()
 		}
 
 		cmd_flag = 0;
-		memset(rx_buffer, 0, sizeof(rx_buffer));
+		memset(rx_buffer, 0, RX_BUFFER_SIZE);
 	}
 }

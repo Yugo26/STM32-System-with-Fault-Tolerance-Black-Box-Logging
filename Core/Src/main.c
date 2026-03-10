@@ -29,8 +29,13 @@
 #include "my_shell.h"
 #include "my_rtc.h"
 #include "bsp_sensor.h"
+#include "my_logger.h"
 
+extern const SensorDriver_t RealSensorDriver;
 extern const SensorDriver_t MockSensorDriver;
+const SensorDriver_t *pSensor = &RealSensorDriver;
+
+
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -74,7 +79,7 @@ const osThreadAttr_t defaultTask_attributes = {
 osThreadId_t myTask02Handle;
 const osThreadAttr_t myTask02_attributes = {
   .name = "myTask02",
-  .stack_size = 128 * 4,
+  .stack_size = 512 * 4,
   .priority = (osPriority_t) osPriorityLow,
 };
 /* Definitions for myQueue01 */
@@ -88,8 +93,7 @@ const osSemaphoreAttr_t myBinarySem01_attributes = {
   .name = "myBinarySem01"
 };
 /* USER CODE BEGIN PV */
-uint32_t adc_buffer;
-const SensorDriver_t *pSensor = &MockSensorDriver;
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -106,8 +110,7 @@ void StartDefaultTask(void *argument);
 void StartUartTask(void *argument);
 
 /* USER CODE BEGIN PFP */
-void Save_To_Flash(uint32_t data);
-uint32_t Load_From_Flash(void);
+
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -152,58 +155,8 @@ int main(void)
   MX_RTC_Init();
   MX_I2C1_Init();
   /* USER CODE BEGIN 2 */
-  uint8_t rx_data = 0;
-  HAL_UART_Receive_IT(&huart2, rx_data, 1);
-  Shell_Init(&huart2);
-
-
-  /*SPI Data Transmit*/
-  /*uint8_t tx_data = 0x55;
-  uint8_t rx_data = 0;
-  char msg[50];
-
-  sprintf(msg, "Sending SPI: 0x%02X\r\n", tx_data);
-  HAL_UART_Transmit(&huart2, (uint8_t*)msg, strlen(msg), 100);
-
-  if(HAL_SPI_TransmitReceive(&hspi1, &tx_data, &rx_data, 1, 100)==HAL_OK){
-	  if(rx_data==tx_data) sprintf(msg, "Success! Received: 0x%02X\r\n", rx_data);
-	  else sprintf(msg, "Fail! Received: 0x%02X (Expected: 0x%02X)\r\n", rx_data, tx_data);
-  }
-  else sprintf(msg, "SPI Error!\r\n");
-  HAL_UART_Transmit(&huart2, (uint8_t*)msg, strlen(msg), 100);*/
-
-  /*Flash Save*/
-  /*HAL_Delay(2000);
+  //Watch Dog and the reason of restarting
   char msg[60];
-  uint32_t last_temp = Load_From_Flash();
-
-  if(last_temp == 0xFFFFFFFF){
-	  sprintf(msg, "History: None (Clean Flash)\r\n");
-  }
-  else {
-	  sprintf(msg, "History: Last Temp was %lu C\r\n", last_temp);
-  }
-  HAL_UART_Transmit(&huart2, (uint8_t*)msg, strlen(msg), 100);
-
-  HAL_ADC_Start(&hadc1);
-
-  if(HAL_ADC_PollForConversion(&hadc1, 10)==HAL_OK){
-	  uint32_t raw_value = HAL_ADC_GetValue(&hadc1);
-	  int32_t current_temp = Convert_To_Temperature(raw_value);
-
-	  sprintf(msg, "Current Temp: %lu C\r\n", current_temp);
-	  HAL_UART_Transmit(&huart2, (uint8_t*)msg, strlen(msg), 100);
-
-	  sprintf(msg, "Saving to Flash...\r\n");
-	  HAL_UART_Transmit(&huart2, (uint8_t*)msg, strlen(msg), 100);
-
-	  Save_To_Flash(current_temp);
-
-	  sprintf(msg, "Done! Reset to check again.\r\n");
-	  HAL_UART_Transmit(&huart2, (uint8_t*)msg, strlen(msg), 100);
-  }
-
-
   if(__HAL_RCC_GET_FLAG(RCC_FLAG_IWDGRST)){
 	  snprintf(msg, sizeof(msg), "System Resetted by Watchdog! (IWDG)\r\n");
 	  __HAL_RCC_CLEAR_RESET_FLAGS();
@@ -211,10 +164,12 @@ int main(void)
   else{
 	  snprintf(msg, sizeof(msg), "System Normal Power-on.\r\n");
   }
-  HAL_UART_Transmit(&huart2, (uint8_t*)msg, strlen(msg), 100);*/
+  HAL_UART_Transmit(&huart2, (uint8_t*)msg, strlen(msg), 100);
 
-
-  I2C_Scanner();
+  uint8_t rx_data = 0;
+  HAL_UART_Receive_IT(&huart2, rx_data, 1);
+  Shell_Init(&huart2);
+  Flash_Init_Cursor();
   /* USER CODE END 2 */
 
   /* Init scheduler */
@@ -650,14 +605,18 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 	}
 }
 
-void HAL_UART_TxCpltCallback(UART_HandleTypeDef *huart)
+void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
 {
-    if(huart->Instance == USART2){
+    if (huart->Instance == USART2)
+    {
+        __HAL_UART_CLEAR_OREFLAG(huart);
+        __HAL_UART_CLEAR_NEFLAG(huart);
+        __HAL_UART_CLEAR_FEFLAG(huart);
 
+        extern uint8_t rx_data;
+        HAL_UART_Receive_IT(huart, &rx_data, 1);
     }
 }
-
-
 
 void I2C_Scanner(void)
 {
@@ -674,26 +633,6 @@ void I2C_Scanner(void)
 
     sprintf(msg, "--- Scan Done ---\r\n");
     HAL_UART_Transmit(&huart2, (uint8_t*)msg, strlen(msg), 100);
-
-    /*
-    	// 1. 設定目標地址 (0x44 左移一位 = 0x88)
-    	// 務必使用 0x88 測試，否則就算硬體好了也會報錯
-    	uint16_t target_addr = (0x44);
-
-    	// 2. 印出開始訊息
-    	sprintf(msg, "--- Starting SHT30 Diagnostics ---\r\n");
-    	HAL_UART_Transmit(&huart2, (uint8_t*)msg, strlen(msg), 100);
-
-    	sprintf(msg, "Testing Target Address: 0x%02X\r\n", target_addr);
-    	HAL_UART_Transmit(&huart2, (uint8_t*)msg, strlen(msg), 100);
-
-    	// 3. 執行檢測
-    	HAL_StatusTypeDef result = HAL_I2C_IsDeviceReady(&hi2c1, target_addr, 2, 100);
-
-    	if (result == HAL_OK) {
-    	    sprintf(msg, "✅ SUCCESS! Sensor Found at 0x%02X\r\n", target_addr);
-    	    HAL_UART_Transmit(&huart2, (uint8_t*)msg, strlen(msg), 100);
-    	}*/
 }
 
 /* USER CODE END 4 */
@@ -708,52 +647,34 @@ void I2C_Scanner(void)
 void StartDefaultTask(void *argument)
 {
   /* USER CODE BEGIN 5 */
-  uint8_t long_msg[] = "Hello DMA! This is a very very long message to test if CPU is free. "
-	                   "While this message is being sent by DMA controller, "
-	                   "the CPU should be blinking the LED at the same time.\r\n";
-
+  static uint8_t error_counter = 0;
+  float temp_val = 0.0f;
+  uint8_t is_mock = 0;
   for(;;)
   {
-	//HAL_UART_Transmit_DMA(&huart2, long_msg, sizeof(long_msg)-1);
-	//HAL_GPIO_TogglePin(LD2_GPIO_Port, LD2_Pin);
+	if(pSensor!=NULL && pSensor->ReadTemp!=NULL){
+		int8_t ret = pSensor->ReadTemp(&temp_val);
+		if(ret ==0){
+			error_counter = 0;
+			if(pSensor==&MockSensorDriver){
+				is_mock = 1;
+			}
 
-	if(osSemaphoreAcquire(myBinarySem01Handle, osWaitForever) == osOK){
-		//HAL_GPIO_TogglePin(LD2_GPIO_Port, LD2_Pin);
-
-		//char msg[] = "Button Pressed! Handling in Task context.\r\n";
-		//HAL_UART_Transmit_DMA(&huart2, (uint8_t*)msg, strlen(msg));
+			else is_mock = 0;
+			Add_Log((int8_t)temp_val, is_mock);
+		}
+		else{
+			error_counter++;
+			if(error_counter>=3){
+				pSensor = &MockSensorDriver;
+                char msg[] = "\r\n Sensor failed Switched to Mock Driver.\r\n";
+                HAL_UART_Transmit(&huart2, (uint8_t*)msg, strlen(msg), 100);
+				error_counter = 0;
+			}
+		}
 	}
-	osDelay(100);
+	osDelay(2500);
   }
-
-  /*breathing light producer*/
-  /*uint32_t raw_value;
-  uint32_t voltage;
-  int temperature;
-  char msg[50];
-  for(;;)
-  {
-	HAL_ADC_Start(&hadc1);
-	if(HAL_ADC_PollForConversion(&hadc1, 10)==HAL_OK){
-		raw_value = HAL_ADC_GetValue(&hadc1);
-		voltage = (raw_value*3300)/4095;
-		temperature = ((int)(voltage -760)*10/25)+25;
-		xQueueSend(myQueue01Handle, &temperature, 10);
-	}
-	sprintf(msg, "Temperature:%ld\r\n",temperature);
-	HAL_UART_Transmit(&huart2, (uint8_t*)msg, strlen(msg), 100);
-	osDelay(100);
-  }*/
-
-	  /*external interrupt to control LD2 status from keyboard 0 or 1*/
-	  /*if(xQueueReceive(myQueue01Handle, &received_char, osWaitForever)==pdTRUE){
-		  if(received_char == '1'){
-			  HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, GPIO_PIN_SET);
-		  }
-		  else if(received_char=='0'){
-			  HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, GPIO_PIN_RESET);
-		  }
-	  }*/
 
   /* USER CODE END 5 */
 }
@@ -770,53 +691,12 @@ void StartUartTask(void *argument)
   /* USER CODE BEGIN StartUartTask */
 
   for(;;){
-	  //Shell_Process();
+	  Shell_Process();
 
 	  //HAL_IWDG_Refresh(&hiwdg);
 
-
 	  osDelay(100);
   }
-
-  /*ADC transmits temperature by DMA*/
-  /*HAL_ADC_Start_DMA(&hadc1, &adc_buffer, 1);
-  char msg[50];
-  uint32_t raw_value;
-  uint32_t voltage;
-  int 	   temperature;
-
-  for(;;){
-
-	  raw_value = adc_buffer;
-	  voltage = (raw_value * 3300) / 4095;
-	  temperature = ((int)(voltage - 760) * 10 / 25) + 25;
-
-	  sprintf(msg, "DMA Temp: %ld C (Raw: %lu)\r\n", temperature, raw_value);
-	  //HAL_UART_Transmit(&huart2, (uint8_t*)msg, strlen(msg), 10);
-	  osDelay(1000);
-  }*/
-
-	/*breathing light receiver*/
-  /*uint32_t breath_speed = 20;
-  int received_temp = 0;
-  uint32_t brightness = 0;
-  int8_t step = 10;
-
-  HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_1);
-  for(;;)
-  {
-	if(xQueueReceive(myQueue01Handle, &received_temp, 0)==pdTRUE){
-		if(received_temp<25) breath_speed = 20;
-		else if(received_temp>40) breath_speed = 5;
-		else breath_speed = 20-(received_temp-25);
-	}
-
-	__HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_1, brightness);
-	brightness+=step;
-	if(brightness>=1000) step = -10;
-	if(brightness<=0) step = 10;
-	osDelay(breath_speed);
-  }*/
   /* USER CODE END StartUartTask */
 }
 
