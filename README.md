@@ -3,9 +3,13 @@ System Architecture
 為了確保降低硬體依賴性，本專案採用"高內聚、低耦合"的分層架構設計，為了大幅提升程式碼的可移植性與可測試性：
 
    Application 層：`main` 負責系統初始化與 FreeRTOS Task 管理。
+   
    Modules 層：實作 `my_shell` (CLI 介面) 與 `my_logger` (黑盒子日誌)，完全不依賴特定硬體。
+   
    BSP 層：統一感測器操作介面，實作真實感測器 (`bsp_sensor_real`) 與虛擬驅動 (`bsp_sensor_mock`)。
+   
    HAL 層：ST 官方硬體抽象層。
+   
    硬體層：STM32F411RE 與 SHT30。
 
 Key Features
