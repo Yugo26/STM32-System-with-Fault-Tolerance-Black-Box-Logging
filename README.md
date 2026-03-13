@@ -29,6 +29,8 @@ Key Features
 *   除錯經驗：開發初期曾因 "開機即執行 Flash 抹除"，導致 CPU 卡死且 SWD 介面失效、板子鎖死。後續透過 STM32CubeProgrammer 進行底層硬體 Reset 成功救回，並藉此深刻理解 Flash 操作對 CPU 總線根中斷的影響，進而完善了 Flash 操作的時序與安全防護機制。
 *   效能優化：讀取歷史紀錄時，善用 ARM Cortex-M 架構特性，直接透過 Memory Mapped 方式以指標存取 Flash 位址，省去額外的 RAM 讀取搬移開銷。
 
+詳細開發過程請見:DEV_LOG.md
+
 ### Tech Stack
 *   RTOS & MCU: FreeRTOS (Task, Queue, Binary Semaphore), STM32F4xx, ARM Cortex-M4
 *   Peripherals: I2C, UART (DMA), ADC (DMA Circular Mode), PWM, IWDG (Watchdog), Internal Flash
