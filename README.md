@@ -1,3 +1,5 @@
+###Demo:https://youtu.be/DCkS0N6PKzo
+
 System Architecture
 
 為了確保降低硬體依賴性，本專案採用"高內聚、低耦合"的分層架構設計，為了大幅提升程式碼的可移植性與可測試性：
